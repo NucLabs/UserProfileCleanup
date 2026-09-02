@@ -147,7 +147,7 @@ function Invoke-UserProfileCleanup {
     }
     else {
         $profiles = @(Get-ChildItem -LiteralPath $usersRootItem.FullName -Directory -Force -ErrorAction Stop | Where-Object {
-                $_.Name -notmatch '^(?i:SRV)' -and $_.Name -notmatch '^\.'
+                $_.Name -match '^(?i:PRD|CNP|DEV|ISB|MKP|MK1|OHP|POL|ONT|RDO|SCV|SWH|ISI)'
             })
     }
 
