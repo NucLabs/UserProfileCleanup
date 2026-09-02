@@ -4,8 +4,8 @@ function Invoke-UserProfileCleanup {
         Removes old files from eligible user profile folders.
 
     .DESCRIPTION
-        Cleans aged Downloads and Temp files while preserving active session folders
-        and Downloads desktop.ini files. Supports -WhatIf for safe previews.
+        Cleans aged Downloads and Temp files while skipping profiles with an active
+        or disconnected RDP session. Supports -WhatIf for safe previews.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -52,29 +52,14 @@ function Invoke-UserProfileCleanup {
         }
     }
 
-    function Get-SessionIdsForProfile {
-        <#
-        .SYNOPSIS
-            Gets connected session IDs for a user profile.
-        #>
-        param([string]$ProfileName)
-
-        @($sessions | Where-Object {
-                $_.UserName -ieq $ProfileName -and
-                $_.SessionState -eq 'Connected' -and
-                $null -ne $_.SessionId
-            } | ForEach-Object { [string]$_.SessionId })
-    }
-
     function Remove-OldFiles {
         <#
         .SYNOPSIS
-            Removes files older than a cutoff while honoring exclusions.
+            Removes files older than a cutoff while honoring filename exclusions.
         #>
         param(
             [string]$Path,
             [datetime]$Cutoff,
-            [string[]]$ProtectedPaths = @(),
             [string[]]$ExcludedFileNames = @()
         )
 
@@ -83,7 +68,6 @@ function Invoke-UserProfileCleanup {
             Exists         = Test-Path -LiteralPath $Path -PathType Container
             CandidateCount = 0
             RemovedCount   = 0
-            ProtectedCount = 0
             ErrorCount     = 0
             Errors         = [System.Collections.Generic.List[string]]::new()
         }
@@ -91,10 +75,6 @@ function Invoke-UserProfileCleanup {
         if (-not $result.Exists) {
             return [PSCustomObject]$result
         }
-
-        $normalizedProtectedPaths = @($ProtectedPaths | ForEach-Object {
-                [System.IO.Path]::GetFullPath($_).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
-            })
 
         $files = @(Get-ChildItem -LiteralPath $Path -File -Force -Recurse -ErrorAction SilentlyContinue)
         foreach ($file in $files) {
@@ -107,17 +87,6 @@ function Invoke-UserProfileCleanup {
             }
 
             $result.CandidateCount++
-            $filePath = [System.IO.Path]::GetFullPath($file.FullName)
-            $isProtected = $normalizedProtectedPaths | Where-Object {
-                $filePath.Equals($_, [System.StringComparison]::OrdinalIgnoreCase) -or
-                $filePath.StartsWith($_ + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)
-            }
-
-            if ($isProtected) {
-                $result.ProtectedCount++
-                continue
-            }
-
             if ($PSCmdlet.ShouldProcess($file.FullName, 'Remove old file')) {
                 try {
                     Remove-Item -LiteralPath $file.FullName -Force -ErrorAction Stop
@@ -137,6 +106,10 @@ function Invoke-UserProfileCleanup {
     $downloadCutoff = $Now.AddDays(-60)
     $tempCutoff = $Now.AddHours(-48)
     $sessions = @(Get-UserSessions)
+    $rdpProfileNames = @($sessions | Where-Object {
+            $_.SessionState -eq 'Disconnected' -or
+            ($_.SessionState -eq 'Connected' -and $_.SessionType -match '^rdp-tcp')
+        } | ForEach-Object { $_.UserName })
 
     $usersRootItem = Get-Item -LiteralPath $UsersRoot -Force -ErrorAction Stop
     $rootLooksLikeProfile = (Test-Path -LiteralPath (Join-Path $usersRootItem.FullName 'Downloads') -PathType Container) -or
@@ -152,12 +125,12 @@ function Invoke-UserProfileCleanup {
     }
 
     foreach ($profile in $profiles) {
-        $tempPath = Join-Path $profile.FullName 'AppData\Local\Temp'
-        $protectedPaths = @(Get-SessionIdsForProfile $profile.Name | ForEach-Object {
-                Join-Path $tempPath $_
-            })
+        if ($rdpProfileNames -contains $profile.Name) {
+            Write-Verbose ('Skipping profile {0}: user has an active or disconnected RDP session.' -f $profile.Name)
+            continue
+        }
 
         Remove-OldFiles -Path (Join-Path $profile.FullName 'Downloads') -Cutoff $downloadCutoff -ExcludedFileNames @('desktop.ini')
-        Remove-OldFiles -Path $tempPath -Cutoff $tempCutoff -ProtectedPaths $protectedPaths
+        Remove-OldFiles -Path (Join-Path $profile.FullName 'AppData\Local\Temp') -Cutoff $tempCutoff
     }
 }
