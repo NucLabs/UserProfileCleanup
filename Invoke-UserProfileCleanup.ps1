@@ -124,13 +124,13 @@ function Invoke-UserProfileCleanup {
             })
     }
 
-    foreach ($profile in $profiles) {
-        if ($rdpProfileNames -contains $profile.Name) {
-            Write-Verbose ('Skipping profile {0}: user has an active or disconnected RDP session.' -f $profile.Name)
+    foreach ($prfl in $profiles) {
+        if ($rdpProfileNames -contains $prfl.Name) {
+            Write-Verbose ('Skipping profile {0}: user has an active or disconnected RDP session.' -f $prfl.Name)
             continue
         }
 
-        Remove-OldFiles -Path (Join-Path $profile.FullName 'Downloads') -Cutoff $downloadCutoff -ExcludedFileNames @('desktop.ini')
-        Remove-OldFiles -Path (Join-Path $profile.FullName 'AppData\Local\Temp') -Cutoff $tempCutoff
+        Remove-OldFiles -Path (Join-Path $prfl.FullName 'Downloads') -Cutoff $downloadCutoff -ExcludedFileNames @('desktop.ini')
+        Remove-OldFiles -Path (Join-Path $prfl.FullName 'AppData\Local\Temp') -Cutoff $tempCutoff
     }
 }
